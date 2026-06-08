@@ -1,0 +1,75 @@
+# SKYD — Smart Field Intelligence Platform
+# Full-stack deployment: FastAPI backend + React frontend + PostgreSQL
+
+services:
+  # ── PostgreSQL Database ──────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: skyd_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-skyd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-skyd_secret_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-skyd_db}
+    volumes:
+      - skyd_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-skyd} -d ${POSTGRES_DB:-skyd_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - skyd_net
+
+  # ── SKYD FastAPI Backend ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: skyd_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ./backend/.env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      ALLOWED_ORIGINS: '["http://localhost:3000","https://skyd.iq","http://frontend:3000"]'
+    volumes:
+      - ./backend/models:/app/models
+      - ./backend/logs:/app/logs
+    ports:
+      - "8000:8000"
+    networks:
+      - skyd_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── SKYD React Frontend ──────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: skyd_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    env_file: ./frontend/.env
+    environment:
+      NODE_ENV: production
+      SKYD_BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    networks:
+      - skyd_net
+
+volumes:
+  skyd_postgres_data:
+
+networks:
+  skyd_net:
+    driver: bridge

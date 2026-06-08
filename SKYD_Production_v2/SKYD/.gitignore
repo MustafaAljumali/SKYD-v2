@@ -1,0 +1,14 @@
+# Ignore environment variables with sensitive keys
+.env
+backend/.env
+frontend/.env
+
+# Ignore dependency directories
+node_modules/
+dist/
+__pycache__/
+*.pyc
+
+# Ignore local log files
+logs/
+*.log
