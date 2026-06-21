@@ -1470,7 +1470,7 @@ export default function App() {
                   <p className="text-xs font-bold text-amber-900">
                     {isAr
                       ? 'البيانات الحالية لمنطقة العراق الافتراضية — ارسم حدود مزرعتك في خريطة الحدود للحصول على بيانات دقيقة لموقعك الفعلي.'
-                      : 'Weather is showing for Iraq's default center. Draw your farm boundary on the Geo-fencing map to get data for your exact location.'}
+                      : "Weather is showing for Iraq's default center. Draw your farm boundary on the Geo-fencing map to get data for your exact location."}
                   </p>
                 </div>
                 <button
