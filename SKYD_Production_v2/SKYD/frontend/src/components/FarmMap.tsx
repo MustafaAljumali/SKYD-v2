@@ -415,6 +415,52 @@ export function FarmMap({ isAr, onBoundaryChange, savedGeoJSON }: FarmMapProps) 
       console.log('[FarmMap] Polygon patch applied ✓ min 4 vertices on all paths');
     };
 
+    /**
+     * CRITICAL FIX: leaflet-draw's L.GeometryUtil.readableArea assigns to an
+     * undeclared `type` variable (`type = typeof isMetric`). Under ES-module
+     * strict mode (Vite bundling) that throws "ReferenceError: type is not
+     * defined". With showArea enabled the tooltip calls readableArea as soon as
+     * the polygon forms an area (3rd vertex), so the throw propagates through
+     * addVertex/_endPoint and every subsequent mousemove — leaving the user
+     * unable to add more than 3 points. Replace it with a corrected copy.
+     */
+    const patchReadableArea = () => {
+      const GU = (L as any).GeometryUtil;
+      if (!GU || GU.__skydAreaPatched) return;
+      const defaultPrecision: Record<string, number> = { km: 2, ha: 2, m: 0, mi: 2, ac: 2, yd: 0, ft: 0, nm: 2 };
+      GU.readableArea = function (area: number, isMetric: boolean | string | string[], precision?: Record<string, number>) {
+        const p = L.Util.extend({}, defaultPrecision, precision) as Record<string, number>;
+        let areaStr: string;
+        let units: string[];
+        if (isMetric) {
+          units = ['ha', 'm'];
+          const type = typeof isMetric;
+          if (type === 'string') units = [isMetric as string];
+          else if (type !== 'boolean') units = isMetric as string[];
+
+          if (area >= 1000000 && units.indexOf('km') !== -1) {
+            areaStr = GU.formattedNumber(area * 0.000001, p['km']) + ' km²';
+          } else if (area >= 10000 && units.indexOf('ha') !== -1) {
+            areaStr = GU.formattedNumber(area * 0.0001, p['ha']) + ' ha';
+          } else {
+            areaStr = GU.formattedNumber(area, p['m']) + ' m²';
+          }
+        } else {
+          area /= 0.836127; // square yards in 1 square meter
+          if (area >= 3097600) {
+            areaStr = GU.formattedNumber(area / 3097600, p['mi']) + ' mi²';
+          } else if (area >= 4840) {
+            areaStr = GU.formattedNumber(area / 4840, p['ac']) + ' acres';
+          } else {
+            areaStr = GU.formattedNumber(area, p['yd']) + ' yd²';
+          }
+        }
+        return areaStr;
+      };
+      GU.__skydAreaPatched = true;
+      console.log('[FarmMap] readableArea patched ✓ (fixes "type is not defined")');
+    };
+
     const restoreGeoJSON = () => {
       if (!savedGeoJSON || !drawnItemsRef.current || !mapRef.current) return;
       if (drawnItemsRef.current.getLayers().length > 0) return;
@@ -453,8 +499,9 @@ export function FarmMap({ isAr, onBoundaryChange, savedGeoJSON }: FarmMapProps) 
         return;
       }
 
-      // Apply monkey-patch BEFORE creating the draw control
+      // Apply monkey-patches BEFORE creating the draw control
       patchPolygonUnlimitedPoints();
+      patchReadableArea();
 
       try {
         const map = L.map(mapContainerRef.current, {
