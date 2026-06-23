@@ -4,8 +4,8 @@ API keys are ALWAYS server-side. Frontend never touches credentials.
 
 Implements:
 1. OAuth2 token acquisition from Copernicus Identity Service
-2. Sentinel-2 EO Browser API query for NDVI, EVI, NDWI, NDRE
-3. Fallback to NASA POWER API when Copernicus is unavailable
+2. Sentinel-2 Statistical API query for NDVI, EVI, NDWI, NDRE
+3. Fallback to NASA POWER weather data when Copernicus is unavailable
 4. Result caching (in-memory, 6-hour TTL)
 """
 
@@ -83,12 +83,13 @@ class SatelliteService:
 //VERSION=3
 function setup() {
   return {
-    input: [{ bands: ["B03","B04","B05","B08"], units: "REFLECTANCE" }],
+    input: [{ bands: ["B03","B04","B05","B08","dataMask"], units: "REFLECTANCE" }],
     output: [
       { id:"ndvi",  bands:1, sampleType:"FLOAT32" },
       { id:"evi",   bands:1, sampleType:"FLOAT32" },
       { id:"ndwi",  bands:1, sampleType:"FLOAT32" },
-      { id:"ndre",  bands:1, sampleType:"FLOAT32" }
+      { id:"ndre",  bands:1, sampleType:"FLOAT32" },
+      { id:"dataMask", bands:1 }
     ]
   };
 }
@@ -97,7 +98,7 @@ function evaluatePixel(s) {
   const evi  = 2.5 * (s.B08 - s.B04) / (s.B08 + 6*s.B04 - 7.5*s.B03 + 1 + 1e-9);
   const ndwi = (s.B03 - s.B08) / (s.B03 + s.B08 + 1e-9);
   const ndre = (s.B08 - s.B05) / (s.B08 + s.B05 + 1e-9);
-  return {ndvi:[ndvi], evi:[evi], ndwi:[ndwi], ndre:[ndre]};
+  return {ndvi:[ndvi], evi:[evi], ndwi:[ndwi], ndre:[ndre], dataMask:[s.dataMask]};
 }
 """
 
@@ -115,19 +116,24 @@ function evaluatePixel(s) {
                     "type": "sentinel-2-l2a",
                     "dataFilter": {
                         "timeRange": {"from": date_from, "to": date_to},
-                        "maxCloudCoverage": 50,
+                        "maxCloudCoverage": 40,
                         "mosaickingOrder": "leastCC",
                     },
                 }],
             },
             "aggregation": {
                 "timeRange":           {"from": date_from, "to": date_to},
-                "aggregationInterval": {"of": "P10D"},
+                "aggregationInterval": {"of": "P30D"},
                 "evalscript":          evalscript,
                 "resx": 10,
                 "resy": 10,
             },
-            "calculations": {"default": {}},
+            "calculations": {
+                "ndvi": {},
+                "evi": {},
+                "ndwi": {},
+                "ndre": {},
+            },
         }
 
         try:
@@ -156,7 +162,13 @@ function evaluatePixel(s) {
                 # Find the most recent interval with valid (non-NaN) data
                 valid = [
                     iv for iv in intervals
-                    if iv.get("outputs") and not iv.get("outputs", {}).get("ndvi", {}).get("bands", {}).get("B0", {}).get("sampleCount") == 0
+                    if iv.get("outputs")
+                    and iv.get("outputs", {})
+                    .get("ndvi", {})
+                    .get("bands", {})
+                    .get("B0", {})
+                    .get("stats", {})
+                    .get("sampleCount", 0) > 0
                 ]
                 if not valid:
                     logger.warning("Copernicus returned no valid intervals for bbox=%s", bbox)
@@ -165,31 +177,42 @@ function evaluatePixel(s) {
                 latest = valid[-1]
                 outputs = latest.get("outputs", {})
 
-                def _mean(key: str, default: float) -> float:
+                def _mean(key: str) -> Optional[float]:
                     try:
-                        return float(outputs[key]["bands"]["B0"]["mean"])
+                        return float(outputs[key]["bands"]["B0"]["stats"]["mean"])
                     except (KeyError, TypeError, ValueError):
-                        return default
+                        return None
 
-                ndvi  = _mean("ndvi",  0.35)
-                evi   = _mean("evi",   0.28)
-                ndwi  = _mean("ndwi",  0.05)
-                ndre  = _mean("ndre",  0.25)
+                ndvi = _mean("ndvi")
+                evi = _mean("evi")
+                ndwi = _mean("ndwi")
+                ndre = _mean("ndre")
+                if ndvi is None:
+                    logger.warning("Copernicus returned an interval without NDVI mean for bbox=%s", bbox)
+                    return None
                 cloud = float(latest.get("cloudCoveragePercent", 0.0))
                 date_str = latest.get("interval", {}).get("to", today.isoformat())
 
                 # Clamp to valid NDVI range
                 ndvi = max(-1.0, min(1.0, ndvi))
 
+                def _log_value(value: Optional[float]) -> str:
+                    return f"{value:.3f}" if value is not None else "n/a"
+
                 logger.info(
-                    "Copernicus NDVI=%.3f EVI=%.3f NDWI=%.3f NDRE=%.3f cloud=%.1f%% date=%s",
-                    ndvi, evi, ndwi, ndre, cloud, date_str,
+                    "Copernicus NDVI=%s EVI=%s NDWI=%s NDRE=%s cloud=%.1f%% date=%s",
+                    _log_value(ndvi),
+                    _log_value(evi),
+                    _log_value(ndwi),
+                    _log_value(ndre),
+                    cloud,
+                    date_str,
                 )
                 return {
                     "ndvi":             round(ndvi, 4),
-                    "evi":              round(evi,  4),
-                    "ndwi":            round(ndwi, 4),
-                    "ndre":             round(ndre, 4),
+                    "evi":              round(evi, 4) if evi is not None else None,
+                    "ndwi":             round(ndwi, 4) if ndwi is not None else None,
+                    "ndre":             round(ndre, 4) if ndre is not None else None,
                     "cloud_cover_pct":  round(cloud, 1),
                     "imagery_date":     date_str,
                     "source":           "sentinel2",
@@ -203,7 +226,7 @@ function evaluatePixel(s) {
     async def _fetch_from_nasa_power(
         self, lat: float, lon: float
     ) -> Dict[str, Any]:
-        """Fallback: NASA POWER API for approximate vegetation proxy."""
+        """Fallback: NASA POWER API for real weather data only."""
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 today = datetime.now(tz=timezone.utc)
@@ -227,20 +250,21 @@ function evaluatePixel(s) {
                 avg_rain = sum(rain_values) / len(rain_values) if rain_values else 1.0
                 avg_solar = sum(solar_values) / len(solar_values) if solar_values else 200.0
 
-                # Approximate NDVI proxy from temperature + rain + solar
-                ndvi_approx = max(0.1, min(0.85,
-                    0.5 + (avg_rain / 10) * 0.2 - max(0, avg_temp - 35) * 0.01
-                ))
-
                 logger.info("NASA POWER fallback used for lat=%s lon=%s", lat, lon)
                 return {
-                    "ndvi": round(ndvi_approx, 3),
-                    "evi": round(ndvi_approx * 0.85, 3),
-                    "ndwi": round(-0.1 + avg_rain / 50, 3),
-                    "ndre": round(ndvi_approx * 0.9, 3),
+                    "ndvi": None,
+                    "evi": None,
+                    "ndwi": None,
+                    "ndre": None,
                     "cloud_cover_pct": 0.0,
                     "imagery_date": today.isoformat(),
-                    "source": "nasa_power_proxy",
+                    "source": "nasa_power_weather_only",
+                    "weather": {
+                        "avg_temp_c": round(avg_temp, 2),
+                        "avg_rain_mm": round(avg_rain, 2),
+                        "avg_solar_kwh_m2_day": round(avg_solar, 2),
+                    },
+                    "note": "NDVI unavailable - Copernicus credentials not configured",
                 }
         except Exception as exc:
             logger.error("NASA POWER fallback also failed: %s", exc)
