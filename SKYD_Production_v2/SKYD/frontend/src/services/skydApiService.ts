@@ -75,10 +75,10 @@ export interface SatelliteData {
   zone_id: string;
   lat: number;
   lon: number;
-  ndvi: number;
-  evi?: number;
-  ndwi?: number;
-  ndre?: number;
+  ndvi: number | null;
+  evi?: number | null;
+  ndwi?: number | null;
+  ndre?: number | null;
   cloud_cover_pct: number;
   imagery_date: string;
   source: string;
@@ -175,7 +175,7 @@ async function apiFetch<T>(
  * Direct NASA POWER API fallback — works without the SKYD backend.
  * Fetches real temperature, precipitation, and solar radiation data
  * from NASA's POWER (Prediction Of Worldwide Energy Resources) API.
- * Computes approximate NDVI proxy from environmental factors.
+ * Keeps vegetation indexes null because NASA POWER does not provide satellite NDVI.
  * Free, no API key required.
  */
 export async function fetchNasaPowerFallback(
@@ -220,25 +220,20 @@ export async function fetchNasaPowerFallback(
   const avgRain = rainVals.length ? rainVals.reduce((a, b) => a + b, 0) / rainVals.length : 1;
   const avgSolar = solarVals.length ? solarVals.reduce((a, b) => a + b, 0) / solarVals.length : 200;
 
-  // Approximate NDVI proxy from environmental factors (temperature + rain + solar)
-  const ndviApprox = Math.max(0.1, Math.min(0.85,
-    0.5 + (avgRain / 10) * 0.2 - Math.max(0, avgTemp - 35) * 0.01
-  ));
-
   return {
     zone_id: zoneId,
     lat,
     lon,
-    ndvi: Math.round(ndviApprox * 1000) / 1000,
-    evi: Math.round(ndviApprox * 0.85 * 1000) / 1000,
-    ndwi: Math.round((-0.1 + avgRain / 50) * 1000) / 1000,
-    ndre: Math.round(ndviApprox * 0.9 * 1000) / 1000,
+    ndvi: null,
+    evi: null,
+    ndwi: null,
+    ndre: null,
     cloud_cover_pct: 0,
     imagery_date: today.toISOString(),
-    source: 'nasa_power',
+    source: 'nasa_power_estimated',
     fetched_at: new Date().toISOString(),
-    health_status: ndviApprox >= 0.4 ? 'Healthy' : ndviApprox >= 0.2 ? 'Stressed' : 'Critical',
-    health_ar: ndviApprox >= 0.4 ? '\u0633\u0644\u064a\u0645' : ndviApprox >= 0.2 ? '\u0645\u062c\u0647\u062f' : '\u062d\u0631\u062c',
+    health_status: 'Unknown',
+    health_ar: '\u063a\u064a\u0631 \u0645\u062a\u0627\u062d',
   };
 }
 
