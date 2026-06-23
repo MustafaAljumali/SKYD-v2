@@ -95,7 +95,7 @@ function computeCenter(boundary: [number, number][]): [number, number] {
 // NDVI health → fill color for thermal overlay
 function getNdviColor(zone: Zone): string {
   const ndvi = zone.satellite?.ndvi;
-  if (ndvi !== undefined) {
+  if (ndvi != null) {
     if (ndvi >= 0.4) return '#10B981';
     if (ndvi >= 0.2) return '#F59E0B';
     return '#EF4444';
@@ -285,7 +285,7 @@ function VirtualAIPopup({
   isAr: boolean;
 }) {
   const ndvi = zone.satellite?.ndvi;
-  const ndviColor = ndvi !== undefined
+  const ndviColor = ndvi != null
     ? ndvi >= 0.4 ? 'text-emerald-400' : ndvi >= 0.2 ? 'text-amber-400' : 'text-red-400'
     : 'text-slate-400';
 
@@ -330,7 +330,7 @@ function VirtualAIPopup({
           </span>
           <strong className="font-mono font-black text-indigo-200">{zone.temp.toFixed(1)}°C</strong>
         </div>
-        {ndvi !== undefined && (
+        {ndvi != null && (
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-slate-400 flex items-center gap-1.5">
               <Activity className="w-3 h-3 text-emerald-400/60" />

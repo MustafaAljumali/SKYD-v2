@@ -268,7 +268,7 @@ export function HybridTelemetryPanel({
                   </div>
                 ))}
 
-                {node.ndvi !== undefined && (
+                {node.ndvi != null && (
                   <div className="flex items-center justify-between text-[10px] pt-1">
                     <span className="text-slate-500">NDVI</span>
                     <span className={`font-mono font-black ${node.ndvi >= 0.4 ? 'text-emerald-600' : node.ndvi >= 0.2 ? 'text-amber-600' : 'text-red-600'}`}>
