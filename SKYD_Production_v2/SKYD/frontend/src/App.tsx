@@ -93,16 +93,10 @@ export default function App() {
   // Satellite and AI configuration settings
   const [satWeatherKey, setSatWeatherKey] = useState(() => {
     return (
+      localStorage.getItem('skyd_owm_key') ||
       (import.meta.env.VITE_OPENWEATHER_API_KEY as string) ||
       (import.meta.env.VITE_OPENWEATHERMAP_API_KEY as string) ||
       (import.meta.env.VITE_OWM_API_KEY as string) ||
-      (import.meta.env.OPENWEATHER_API_KEY as string) ||
-      (import.meta.env.OPENWEATHERMAP_API_KEY as string) ||
-      (import.meta.env.OWM_API_KEY as string) ||
-      (window as any).ENV?.VITE_OPENWEATHER_API_KEY ||
-      (window as any).ENV?.OPENWEATHER_API_KEY ||
-      (window as any).VITE_OPENWEATHER_API_KEY ||
-      (window as any).OPENWEATHER_API_KEY ||
       ''
     );
   });
@@ -779,7 +773,8 @@ export default function App() {
             const savedKeysStr = localStorage.getItem(`skyd_local_keys_${activeUser.uid}`) || localStorage.getItem(`skyed_local_keys_${activeUser.uid}`);
             if (savedKeysStr) {
               const d = JSON.parse(savedKeysStr);
-              setSatWeatherKey(d.satWeatherKey || '');
+              const loadedKey = d.satWeatherKey || localStorage.getItem('skyd_owm_key') || (import.meta.env.VITE_OPENWEATHER_API_KEY as string) || '';
+              setSatWeatherKey(loadedKey);
               setAiApiKey(d.aiApiKey || '');
               setTrainModelUrl(d.trainModelUrl || '');
             }
@@ -795,7 +790,8 @@ export default function App() {
     const unsubscribeKeys = onSnapshot(configDocRef, (snapshot) => {
       if (snapshot.exists()) {
         const d = snapshot.data();
-        setSatWeatherKey(d.satWeatherKey || '');
+        const loadedKey = d.satWeatherKey || localStorage.getItem('skyd_owm_key') || (import.meta.env.VITE_OPENWEATHER_API_KEY as string) || '';
+        setSatWeatherKey(loadedKey);
         setAiApiKey(d.aiApiKey || '');
         setTrainModelUrl(d.trainModelUrl || '');
       }
@@ -807,6 +803,11 @@ export default function App() {
   const handleSaveKeys = async (e: React.FormEvent) => {
     e.preventDefault();
     const firebaseUser = auth.currentUser;
+    if (satWeatherKey) {
+      localStorage.setItem('skyd_owm_key', satWeatherKey);
+    } else {
+      localStorage.removeItem('skyd_owm_key');
+    }
     if (!firebaseUser) {
       const activeUserStr = localStorage.getItem('skyd_active_user') || localStorage.getItem('skyed_active_user');
       if (activeUserStr) {
@@ -906,7 +907,7 @@ export default function App() {
         }
 
         await setDoc(doc(db, 'users', uid, 'config', 'keys'), {
-          satWeatherKey: '',
+          satWeatherKey: localStorage.getItem('skyd_owm_key') || (import.meta.env.VITE_OPENWEATHER_API_KEY as string) || '',
           aiApiKey: '',
           trainModelUrl: '',
           phone: authPhone,
@@ -1021,7 +1022,7 @@ export default function App() {
             // Zones are NOT pre-created — they are created only after the farmer draws farm boundaries
 
             await setDoc(doc(db, 'users', uid, 'config', 'keys'), {
-              satWeatherKey: '',
+              satWeatherKey: localStorage.getItem('skyd_owm_key') || (import.meta.env.VITE_OPENWEATHER_API_KEY as string) || '',
               aiApiKey: '',
               trainModelUrl: '',
               updatedAt: serverTimestamp()
@@ -1236,7 +1237,7 @@ export default function App() {
       estimatedP: data?.phosphorus ?? 0,
       estimatedK: data?.potassium ?? 0,
       ndvi: z.satellite?.ndvi,
-      confidence: z.satellite?.ndvi !== undefined ? Math.min(95, Math.round((z.satellite.ndvi) * 100 + 40)) : 65,
+      confidence: z.satellite?.ndvi != null ? Math.min(95, Math.round((z.satellite.ndvi) * 100 + 40)) : 65,
       processedAt: z.lastSensorReading ?? z.satellite?.imageryDate ?? new Date().toISOString(),
       source: (z.satellite?.source ?? 'sentinel2') as 'sentinel2' | 'ai_interpolation',
     }));
@@ -1470,7 +1471,7 @@ export default function App() {
                   <p className="text-xs font-bold text-amber-900">
                     {isAr
                       ? 'البيانات الحالية لمنطقة العراق الافتراضية — ارسم حدود مزرعتك في خريطة الحدود للحصول على بيانات دقيقة لموقعك الفعلي.'
-                      : 'Weather is showing for Iraq's default center. Draw your farm boundary on the Geo-fencing map to get data for your exact location.'}
+                      : 'Weather is showing for Iraq default center. Draw your farm boundary on the Geo-fencing map to get data for your exact location.'}
                   </p>
                 </div>
                 <button

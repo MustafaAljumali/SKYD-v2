@@ -15,12 +15,12 @@ export interface WeatherData {
 }
 
 export interface SatelliteData {
-  ndvi: number;
-  evi?: number;
+  ndvi: number | null;
+  evi?: number | null;
   savi?: number;
-  ndwi?: number;
-  ndre?: number;
-  source: 'sentinel2' | 'nasa_power';
+  ndwi?: number | null;
+  ndre?: number | null;
+  source: 'sentinel2' | 'nasa_power' | 'nasa_power_estimated' | 'nasa_power_weather_only';
   imageryDate: string; // image pass timestamp
   cloudCover?: number; // % cloud cover
 }
@@ -144,7 +144,7 @@ export interface VirtualNode {
   estimatedN: number;
   estimatedP: number;
   estimatedK: number;
-  ndvi?: number;
+  ndvi?: number | null;
   confidence: number;  // 0-100 %
   processedAt: string; // ISO timestamp
   source: 'sentinel2' | 'ai_interpolation';
