@@ -33,19 +33,22 @@ class SatelliteDataResponse(BaseModel):
     zone_id: str
     lat: float
     lon: float
-    ndvi: float
+    ndvi: Optional[float] = None
     evi: Optional[float] = None
     ndwi: Optional[float] = None
     ndre: Optional[float] = None
     cloud_cover_pct: float
     imagery_date: str
     source: str
+    note: Optional[str] = None
     fetched_at: str
-    health_status: str  # "Healthy" | "Stressed" | "Critical"
+    health_status: str  # "Healthy" | "Moderate" | "Stressed" | "Critical" | "Unknown"
     health_ar: str
 
 
-def _classify_health(ndvi: float) -> tuple[str, str]:
+def _classify_health(ndvi: Optional[float]) -> tuple[str, str]:
+    if ndvi is None:
+        return "Unknown", "غير متاح"
     if ndvi >= 0.6:
         return "Healthy", "سليم"
     elif ndvi >= 0.4:
@@ -93,21 +96,23 @@ async def get_ndvi(
         cloud_cover_pct=result.get("cloud_cover_pct", 0.0),
         imagery_date=result.get("imagery_date", datetime.now(tz=timezone.utc).isoformat()),
         source=result.get("source", "sentinel2"),
+        note=result.get("note"),
         fetched_at=datetime.now(tz=timezone.utc).isoformat(),
         health_status=health_en,
         health_ar=health_ar,
     )
 
-    # Broadcast satellite update via WebSocket
-    await connection_manager.broadcast({
-        "event": "SATELLITE_UPDATE",
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-        "zone_id": zone_id,
-        "ndvi": result["ndvi"],
-        "health_status": health_en,
-        "health_ar": health_ar,
-        "imagery_date": response.imagery_date,
-    })
+    if result["ndvi"] is not None:
+        # Broadcast satellite update via WebSocket
+        await connection_manager.broadcast({
+            "event": "SATELLITE_UPDATE",
+            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+            "zone_id": zone_id,
+            "ndvi": result["ndvi"],
+            "health_status": health_en,
+            "health_ar": health_ar,
+            "imagery_date": response.imagery_date,
+        })
 
     return response
 
